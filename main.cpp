@@ -1,17 +1,56 @@
 #include <iostream>
 #include <vector>
 #include <cmath>
+#include <algorithm>
 
-// Configuración básica de audio
-const int SAMPLE_RATE = 44100; // Calidad de audio estándar (44.1 kHz)
+const int SAMPLE_RATE = 44100;
 
-// Clase principal del motor Reverb (Efecto Concert Hall)
+// 1. LIMITADOR DE PICOS (Evita la distorsión digital / clipping)
+class PeakLimiter {
+private:
+    float threshold = 0.95f; // Límite máximo de amplitud (-0.45 dBFS)
+
+public:
+    float processSample(float input) {
+        // Aplica compresión suave (soft clipping) si excede el umbral
+        if (input > threshold) {
+            return threshold + (input - threshold) / (1.0f + std::pow(input - threshold, 2));
+        } else if (input < -threshold) {
+            return -threshold + (input + threshold) / (1.0f + std::pow(-input - threshold, 2));
+        }
+        return input;
+    }
+};
+
+// 2. ECUALIZADOR (Filtro Low Shelf para Bass Boost)
+class BassBoostFilter {
+private:
+    float gain = 1.0f; // Multiplicador de graves
+    float lastSample = 0.0f;
+
+public:
+    void setBassGain(float dbGain) {
+        // Convierte Decibelios a escala lineal
+        gain = std::pow(10.0f, dbGain / 20.0f);
+    }
+
+    float processSample(float input) {
+        // Filtro pasa-bajas simple para aislar y realzar frecuencias graves (< 200 Hz)
+        float lowFreq = (input + lastSample) * 0.5f;
+        lastSample = input;
+        
+        float highFreq = input - lowFreq;
+        return (lowFreq * gain) + highFreq;
+    }
+};
+
+// 3. MOTOR REVERB CONCERT HALL
 class ConcertHallReverb {
 private:
     std::vector<float> delayBuffer;
     int writeIndex = 0;
-    float wetDryMix = 0.5f; // Perilla: 0.0 (Sin Reverb) a 1.0 (100% Concert Hall)
-    float decay = 0.6f;      // Eco y resonancia de la sala
+    float wetDryMix = 0.5f;
+    float decay = 0.6f;
 
 public:
     ConcertHallReverb(float delaySeconds) {
@@ -19,47 +58,50 @@ public:
         delayBuffer.resize(bufferSize, 0.0f);
     }
 
-    // Ajuste en tiempo real (Equivalente a girar la perilla en la app)
     void setMix(float mixValue) {
-        if (mixValue < 0.0f) mixValue = 0.0f;
-        if (mixValue > 1.0f) mixValue = 1.0f;
-        wetDryMix = mixValue;
+        wetDryMix = std::clamp(mixValue, 0.0f, 1.0f);
     }
 
-    // Procesamiento sample por sample (DSP en tiempo real)
     float processSample(float inputSample) {
         float delayedSample = delayBuffer[writeIndex];
-        
-        // Algoritmo de realimentación para simular las paredes de una sala de conciertos
         float outputSample = inputSample + (delayedSample * decay);
         delayBuffer[writeIndex] = outputSample;
-
         writeIndex = (writeIndex + 1) % delayBuffer.size();
 
-        // Mezcla final: Sonido Original (Dry) + Sonido Procesado (Wet)
         return (inputSample * (1.0f - wetDryMix)) + (outputSample * wetDryMix);
     }
 };
 
+// --- CADENA COMPLETA DE AUDIO (DSP PIPELINE) ---
 int main() {
-    std::cout << "--- Generando Rafaga de Audio en Tiempo Real ---" << std::endl;
-    
-    ConcertHallReverb concertHall(0.15f);
-    concertHall.setMix(0.7f); // Perilla al 70%
+    std::cout << "=== PROCESADOR DSP: REVERB + BASS BOOST + LIMITER ===" << std::endl;
 
-    // Simulamos 10 muestras continuas de sonido
-    std::vector<float> audioEntrada = {0.8f, 0.5f, 0.2f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
+    // Instancias de los módulos DSP
+    ConcertHallReverb reverb(0.15f);
+    BassBoostFilter bassBoost;
+    PeakLimiter limiter;
 
-    std::cout << "\nEntrada\t->\tSalida Procesada (Con Reverb/Eco)" << std::endl;
+    // Configuración de perillas (Simulación de la UI)
+    reverb.setMix(0.6f);          // Perilla Reverb al 60%
+    bassBoost.setBassGain(6.0f);   // Realce de graves +6 dB
+
+    // Audio de prueba con un pico fuerte para probar el limitador
+    std::vector<float> audioEntrada = {0.5f, 0.9f, 1.2f, 0.8f, 0.3f, 0.0f, 0.0f};
+
+    std::cout << "\nEntrada\t->\tSalida Final Procesada" << std::endl;
     std::cout << "---------------------------------------------" << std::endl;
 
-    for (size_t i = 0; i < audioEntrada.size(); ++i) {
-        float salida = concertHall.processSample(audioEntrada[i]);
-        std::cout << audioEntrada[i] << "\t->\t" << salida << std::endl;
+    for (float sample : audioEntrada) {
+        // Cadena de Procesamiento en serie:
+        float paso1 = bassBoost.processSample(sample); // 1. Aplica Graves
+        float paso2 = reverb.processSample(paso1);     // 2. Aplica Concert Hall
+        float salidaFinal = limiter.processSample(paso2); // 3. Evita Distorsión
+
+        std::cout << sample << "\t->\t" << salidaFinal << std::endl;
     }
 
     std::cout << "---------------------------------------------" << std::endl;
-    std::cout << "--- Resonancia de la Sala Simulada con Exito ---" << std::endl;
+    std::cout << "--- Cadena de Procesamiento Exitosa ---" << std::endl;
 
     return 0;
 }
