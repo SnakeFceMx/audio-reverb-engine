@@ -1,6 +1,5 @@
 import ctypes
 import numpy as np
-import sounddevice as sd
 import time
 
 # 1. Cargar el motor DSP C++
@@ -9,28 +8,33 @@ lib.set_reverb_mix.argtypes = [ctypes.c_float]
 lib.process_audio_sample.argtypes = [ctypes.c_float]
 lib.process_audio_sample.restype = ctypes.c_float
 
-# Fijar nivel de Reverb al 60%
-lib.set_reverb_mix(0.6)
+# Ajustar Reverb Mix al 70%
+lib.set_reverb_mix(0.7)
 
-# 2. Función Callback: Se ejecuta automáticamente cada vez que la tarjeta de sonido tiene nuevos datos
-def audio_callback(indata, outdata, frames, time_info, status):
-    if status:
-        print(status)
-    
-    # indata contiene el audio en vivo que entra (micrófono / cable virtual)
-    # Procesamos muestra por muestra en C++
-    for i in range(frames):
-        muestra_entrada = indata[i, 0] # Canal 1 (Mono)
-        muestra_procesada = lib.process_audio_sample(muestra_entrada)
-        outdata[i, 0] = muestra_procesada # Salida a los altavoces
+print("🎛️ SIMULADOR DE STREAMING EN TIEMPO REAL (MODO NUBE)")
+print("Procesando bloques de 1024 muestras en tiempo real mediante el motor C++...\n")
 
-print("🎛️ Motor DSP C++ escuchando entrada de audio en tiempo real...")
-print("Presiona Ctrl+C para detener.")
+blocksize = 1024
+samplerate = 44100
 
-# 3. Abrir Stream de Audio (Entrada -> Procesamiento C++ -> Salida)
+# 2. Bucle que simula la llegada constante de audio de YouTube/Sistema
 try:
-    with sd.Stream(channels=1, callback=audio_callback, samplerate=44100, blocksize=1024):
-        while True:
-            time.sleep(0.1)
+    bloque_num = 1
+    while True:
+        # Generar un bloque de 1024 muestras (Simulación de audio en vivo)
+        t = np.linspace(0, blocksize / samplerate, blocksize, endpoint=False)
+        indata = np.sin(2 * np.pi * 440 * t) # Tono de prueba
+        outdata = np.zeros_like(indata)
+
+        # Procesar bloque en C++
+        for i in range(blocksize):
+            outdata[i] = lib.process_audio_sample(indata[i])
+
+        print(f"-> Bloque #{bloque_num} procesado en C++ | Muestra entrada: {indata[0]:.3f} | Muestra Reverb: {outdata[0]:.3f}")
+        bloque_num += 1
+        
+        # Simular el intervalo del buffer real (~23ms por bloque)
+        time.sleep(blocksize / samplerate)
+
 except KeyboardInterrupt:
-    print("\nTransmisión en tiempo real detenida.")
+    print("\nTransmisión simulada detenida.")
