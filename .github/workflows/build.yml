@@ -1,0 +1,23 @@
+name: Compilar Motor DSP en la Nube
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Descargar Codigo del Repositorio
+      uses: actions/checkout@v3
+
+    - name: Compilar Motor C++
+      run: |
+        g++ -O3 -fPIC -shared -o libreverb.so main.cpp
+
+    - name: Probar Ejecucion con Python FFI
+      run: |
+        python3 -c "import ctypes; lib = ctypes.CDLL('./libreverb.so'); print('Libreria DSP cargada con exito en la nube!')"
